@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Economic Inactivity Analysis</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+</head>
+<body>
+    <!-- Dropdown List -->
+    <select id="datasetDropdown">
+        <option value="year_data">Employment Preference Distribution</option>
+        <option value="want_job">Job Seekers Breakdown by Reason</option>
+        <option value="no_want_job">Non-Seekers Breakdown by Reason</option>
+    </select>
+
+    <div id="chart-container"></div>
+
+    <script>
+        function buildLineChart(jsonData, title, datasetType) {
+            console.log('array = ', jsonData);//verificator Json
+
+            const data = jsonData.slice(1);//data without Headers
+
+            const width = 1000;
+            const height = 500;
+
+            const paddingTop = 50;
+            const paddingRight = 150;
+            const paddingLeft = 80;
+            const paddingBottom = 80;
+
+            const graphWidth = width - (paddingLeft + paddingRight);
+            const graphHeight = height - (paddingTop + paddingBottom);
+
+            const years = data.map(d => +d[0]); //1st column of dataset
+
+            const categories = jsonData[0].slice(1);// use index [0] contain first array, slice omit year and left data "Does not want job", "Wants a job"
+            //iteration 
+            const populationData = categories.map((category, index) => {
+                return data.map(d => +d[index + 1].replace(/,/g, ''));
+            });//iteration over every category to take out ',' from the numbers
+            // Totales por año (misma longitud que years)
+            const yearTotals = years.map((_, i) =>
+            populationData.reduce((sum, arr) => sum + arr[i], 0)
+            );
+
+            const populations = data.map(d => 
+                categories.map((category, index) => +d[index + 1].replace(/,/g, ''))
+            ).flat();//all pupulation data in one array
+
+            d3.select('#chart-container').html('');
+
+            const svg = d3.select('#chart-container')
+                .append('svg')
+                .attr('width', width)
+                .attr('height', height)
+                .style('border', '1px solid black');
+
+            const xScale = d3.scaleLinear()//relationship between pixels and data years
+                .domain([d3.min(years), d3.max(years)])
+                .range([0, graphWidth]);
+
+            const yScale = d3.scaleLinear()// relationship between picels and data population
+                .domain([0, d3.max(populationData.flat())])
+                .range([graphHeight, 0])
+                .nice();
+
+            const xAxis = d3.axisBottom(xScale)// draw the relationship between pixels and years
+                .ticks(years.length)//ticks will be each year in the dataset
+                .tickFormat(d3.format('d'));
+
+            const yAxis = d3.axisLeft(yScale)
+                .ticks(6)
+                .tickFormat(d3.format('.0f'));
+
+            const graphGroup = svg.append('g')
+                .attr('transform', `translate(${paddingLeft}, ${paddingTop})`)
+                .attr('id', 'graph-group');
+
+            const axesGroup = graphGroup.append('g').attr('id', 'axes-group');
+            axesGroup.append('g')
+                .attr('id', 'x-axis')
+                .attr('transform', `translate(0,${graphHeight})`)// moved to the base of the graph
+                .call(xAxis)
+                .selectAll('text')
+                .attr('class', 'tick-label')
+                .style('transform', 'translate(-10px,30px ) rotate(-90deg)');
+            axesGroup.append('g')
+                .attr('id', 'y-axis')
+                .call(yAxis)
+                .selectAll('text')
+                .attr('class', 'tick-label');
+
+            const reasons = new Set(categories);// erase duplicates, not necessary, can use categories instead
+
+            // Color schemes
+            let colourScale;
+            if (datasetType === 'year_data') {
+                // Distinct purple/pink scheme for main comparison
+                colourScale = d3.scaleOrdinal(['#4c1130', '#f90393'])
+                    .domain(reasons);
+            } else {
+                // Default scheme for detailed breakdowns
+                colourScale = d3.scaleOrdinal(d3.schemeTableau10)
+                    .domain(reasons);
+            }
+
+            // Grid lines
+            graphGroup.selectAll('line.grid-vertical-line')
+                .data(years)
+                .enter()
+                .append('line')
+                .attr('class', 'grid-vertical-line')
+                .attr('x1', (d) => xScale(d))
+                .attr('y1', 0)
+                .attr('x2', (d) => xScale(d))
+                .attr('y2', graphHeight)
+                .style('stroke', 'gray')
+                .style('stroke-width', 1)
+                .style('opacity', '0.15');
+
+            graphGroup.selectAll('line.grid-horizontal-line')
+                .data(d3.range(0, d3.max(populations), 500))
+                .enter()
+                .append('line')
+                .attr('class', 'grid-horizontal-line')
+                .attr('x1', 0)
+                .attr('y1', (d) => yScale(d))
+                .attr('x2', graphWidth)
+                .attr('y2', (d) => yScale(d))
+                .style('stroke', 'gray')
+                .style('stroke-width', 1)
+                .style('opacity', '0.15');
+
+            // Chart labels
+            svg.append('text')
+                .attr('x', width / 2)
+                .attr('y', paddingTop / 2)
+                .attr('text-anchor', 'middle')
+                .style('font-size', '16px')
+                .text(title);
+            svg.append('text')
+                .attr('x', width / 2)
+                .attr('y', height - paddingBottom / 6)
+                .attr('text-anchor', 'middle')
+                .style('font-size', '14px')
+                .text('Year');
+            svg.append('text')
+                .attr('transform', 'rotate(-90)')
+                .attr('x', -height / 2)
+                .attr('y', paddingLeft / 3)
+                .attr('text-anchor', 'middle')
+                .style('font-size', '14px')
+                .text('Population (Thousands)');
+
+            // Data lines
+            const lines = graphGroup.selectAll('path.line')
+                .data(populationData)
+                .enter()
+                .append('path')
+                .attr('class', 'line')
+                .attr('stroke', (d, i) => colourScale(categories[i]))
+                .attr('stroke-width', 1.25)
+                .style('fill', 'none')
+                .style('opacity', 0.5)
+                .attr('d', d3.line().curve(d3.curveNatural)
+                    .x((d, i) => xScale(years[i]))
+                    .y(d => yScale(d))
+                );
+
+            // Tooltip
+            const tooltip = svg.append('text')
+                .attr('id', 'tooltip')
+                .attr('x', 0)
+                .attr('y', 0)
+                .style('font-size', '12px')
+                .style('background-color', 'white')
+                .style('padding', '5px')
+                .style('visibility', 'hidden');
+
+            // Line interactions
+            lines.on('mouseenter', function (event) {
+                const thisPath = d3.select(this);
+                thisPath.style("opacity", 1).raise();
+
+                graphGroup.selectAll('circle').remove();
+
+                graphGroup.selectAll('circle')
+  
+                .data(thisPath.datum().map((value, i) => ({ value, i })))
+                .enter()
+                .append('circle')
+                    .attr('cx', d => xScale(years[d.i]))
+                    .attr('cy', d => yScale(d.value))
+                    .attr('r', 3)
+                    .style('fill', 'blue')
+                .on('mouseenter', function (event, d) {
+                    
+                    const raw = d.value;
+                    //total 
+                    const total = yearTotals[d.i];
+                    // percent (2 decimales)
+                    const pct  = ((raw / total) * 100).toFixed(2) + '%';
+                    tooltip
+                    .style('visibility', 'visible')
+                    .text(`${raw} (${pct})`);
+                })
+                .on('mousemove', function (event) {
+                    tooltip
+                    .attr('x', event.offsetX + 3)
+                    .attr('y', event.offsetY - 5);
+                })
+                .on('mouseleave', function () {
+                    tooltip.style('visibility', 'hidden');
+                });
+                ;
+            })
+            //Cleaning the tooltips
+            .on('mouseleave', function (event) {
+                d3.select(this).style("opacity", 0.5);
+                graphGroup.selectAll('circle').remove();
+                tooltip.style('visibility', 'hidden');
+            });
+
+            // Legend
+            const legendGroup = svg.append('g')
+                .attr('transform', `translate(${width - paddingRight + 20}, ${paddingTop})`);
+
+            const legendData = categories.map((category, i) => ({
+                label: category,
+                color: colourScale(category),
+            }));
+
+            legendGroup.selectAll('rect')
+                .data(legendData)
+                .enter()
+                .append('rect')
+                .attr('x', 0)
+                .attr('y', (d, i) => i * 20)
+                .attr('width', 15)
+                .attr('height', 15)
+                .style('fill', d => d.color);
+
+            legendGroup.selectAll('text')
+                .data(legendData)
+                .enter()
+                .append('text')
+                .attr('x', 20)
+                .attr('y', (d, i) => i * 20 + 12)
+                .text(d => d.label)
+                .style('font-size', "12px")
+                .style('alignment-baseline', 'middle');
+        }
+
+        // Initialize the chart
+        document.addEventListener('DOMContentLoaded', function() {
+            const dropdown = document.getElementById('datasetDropdown');
+            
+            d3.json('EconomicData.json').then(function(data) {
+                // Initial chart load
+                buildLineChart(
+                    data['year_data'], 
+                    'Economic Inactivity Distribution by Employment Preference', 
+                    'year_data'
+                );
+
+                // Dropdown handler
+                dropdown.addEventListener('change', function () {
+                    const selectedDataKey = dropdown.value;
+                    let title = '';
+                    
+                    if (selectedDataKey === 'year_data') {
+                        title = 'Economic Inactivity Distribution by Employment Preference';
+                    } else if (selectedDataKey === 'want_job') {
+                        title = 'Reasons for Economic Inactivity Among Job Seekers';
+                    } else if (selectedDataKey === 'no_want_job') {
+                        title = 'Reasons for Economic Inactivity Among Non-Seekers';
+                    }
+                    
+                    buildLineChart(data[selectedDataKey], title, selectedDataKey);
+                });
+            }).catch(function(error) {
+                console.error('Error loading data:', error);
+            });
+        });
+    </script>
+</body>
+</html>
